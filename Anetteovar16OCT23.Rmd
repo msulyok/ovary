@@ -1,0 +1,300 @@
+---
+title: "Anette Ovar Project"
+author: "Sulyok"
+date: "2023-10-16"
+output: word_document
+---
+
+```{r setup, echo=TRUE}
+library(haven)
+library(survival)
+library(ggplot2)
+library(dplyr)
+library(ggfortify)
+library(survminer)
+library(flexsurv)
+library(pammtools)
+library(contsurvplot)
+library(sjPlot)
+
+
+
+
+
+ovar <- read_sav("anetteovarproject/Ovar Immun DB_22_mit OrigDx_extract.sav")
+
+
+ov1<-ovar[, c(16, 48, 54, 57, 59, 64:67, 71, 75, 78, 80, 82, 85, 87, 89, 92, 94, 97, 102, 104, 106, 124, 125, 136, 137)]
+ov1[,c(1,3,4,6,8)]<-lapply(ov1[,c(1,3,4,6,8)], as.factor)
+
+
+ov1$GAL1_Comb_Str<-as.numeric(gsub(",", ".", ov1$GAL1_Comb_Str))
+ov1$GAL1_Comb_Epi<-as.numeric(gsub(",", ".", ov1$GAL1_Comb_Epi))
+#ov1$TNM<-as.factor(ifelse(ov1$TNM =="Unknown", NA, ov1$TNM))
+
+summary(ov1)
+
+
+
+
+######################all#########################
+ov1$status<-as.numeric(ov1$Tot)
+ov1$time<-ov1$OS
+ov1$status<-ifelse(ov1$status== 2, 1, 0)
+
+
+ov2<-as.data.frame(ov1[c(2, 3, 4, 11, 10, 14, 17, 28, 29, 19, 18, 20:22, 24:27)])
+summary(ov2)
+
+
+
+
+cox <- coxph(Surv(time, status) ~. , data = ov2, x=TRUE)
+summary(cox)
+cox_fit <- survfit(cox)
+autoplot(cox_fit)
+#a<-ggforest(cox)
+
+
+tab_model(cox)
+plot_model(cox)
+
+test.ph <- cox.zph(cox) ##problemss here with cox
+test.ph 
+
+
+plot_surv_area(time="time", status="status", variable= "AlterbeiDx", data=ov2, model=cox)
+plot_surv_area(time="time", status="status", variable="GAL1_Comb_Str", data=ov2, model=cox)
+plot_surv_area(time="time", status="status", variable="IDO_TU_mittel", data=ov2, model=cox)
+plot_surv_area(time="time", status="status", variable="CPS_score_mittel", data=ov2, model=cox)
+plot_surv_contour(time="time", status="status", variable= "AlterbeiDx", data=ov2, model=cox)
+plot_surv_contour(time="time", status="status", variable="GAL1_Comb_Str", data=ov2, model=cox)
+plot_surv_contour(time="time", status="status", variable="IDO_TU_mittel", data=ov2, model=cox)
+plot_surv_contour(time="time", status="status", variable="CPS_score_mittel", data=ov2, model=cox)
+###########aalen###########
+aa_fit <-aareg(Surv(time, status) ~., data = ov2, x=TRUE)
+aa_fit  ####IDO tunor, gal stromal besides figo, and r status
+
+autoplot(aa_fit)
+
+
+
+
+############rf####################
+
+library(randomForestSRC)
+
+
+ov2<-as.data.frame(ov1[c(2, 3, 4, 11, 10, 14, 17, 28, 29, 19, 18, 20:22, 24:27)])
+
+
+
+set.seed(12345)
+train<-sample(1:nrow(ov2), round(nrow(ov2)*0.8))
+set.seed(12345)
+
+tunedgrow<-tune.rfsrc(Surv(time, status) ~. , data = ov2[train,], trace=FALSE, doBest=TRUE, na.action="na.imput")
+tunedgrow
+
+grow<-rfsrc(Surv(time, status) ~., data = ov2[train,], nodesize=tunedgrow$optimal["nodesize"], mtry=tunedgrow$optimal["mtry"], trace=TRUE, na.action="na.imput")
+set.seed(12345)
+pred<-predict(grow, ov2[-train,])
+set.seed(12345)
+print(grow)
+set.seed(12345)
+print(pred)
+
+plot.variable.rfsrc(grow, plots.per.page = 3)
+plot.variable.rfsrc(grow, plots.per.page = 3, surv.type = "surv")
+
+set.seed(12345)
+print(vimp(grow)$importance)
+plot(vimp(grow))
+reg.smp.o <- subsample(iris.obj, B = 25, subratio = .5)
+plot.subsample(reg.smp.o)
+print(reg.smp.o)
+plot.survival.rfsrc(grow)
+
+
+
+
+
+##########################basicfor anna###############################################
+
+
+ov2<-ov1[c(2, 3, 4, 11, 10, 14, 17, 28, 29)]
+
+#ov2$CPSbin<-ifelse(ov2$CPS_score_mittel >=5, "CPS high", "CPS low")## annette asked to see what happens with thiis cutoff
+
+
+summary(ov2)
+
+cox <- coxph(Surv(time, status) ~. , data = ov2, x=TRUE)
+summary(cox)
+cox_fit <- survfit(cox)
+autoplot(cox_fit)
+c<-summary(cox)
+write.csv(c$coefficients, "annacoxoutput.csv")
+tab_model(cox)
+plot_model(cox)
+#a<-ggforest(cox)
+
+test.ph <- cox.zph(cox)
+test.ph #problems with R status and figo, globally ok
+
+plot_surv_area(time="time", status="status", variable="TPS_score_mittel", data=ov2, model=cox)
+plot_surv_contour(time="time", status="status", variable= "CD8SumAv", data=ov2, model=cox)
+plot_surv_contour(time="time", status="status", variable="CD3SumAv", data=ov2, model=cox)
+plot_surv_contour(time="time", status="status", variable="TPS_score_mittel", data=ov2, model=cox)
+plot_surv_contour(time="time", status="status", variable="CPS_score_mittel", data=ov2, model=cox)
+
+
+ggcoxzph(test.ph)
+ggcoxdiagnostics(cox, type = "dfbeta", linear.predictions = FALSE, ggtheme = theme_bw())
+
+ggcoxdiagnostics(cox, type = "deviance",ox.scale = "linear.predictions")
+
+simple<-ov2[, 4:9]
+coxsimple <- coxph(Surv(time, status) ~., data=simple, x=TRUE)
+summary(coxsimple) ###not significant at all
+a<-ggforest(coxsimple)
+a
+
+test.ph <- cox.zph(coxsimple)
+test.ph #problem
+tab_model(coxsimple)
+plot_model(coxsimple)
+
+plot_surv_area(time="time", status="status", variable= "CD8SumAv", data=ov2, model=coxsimple)
+plot_surv_area(time="time", status="status", variable="CD3SumAv", data=ov2, model=coxsimple)
+plot_surv_area(time="time", status="status", variable="TPS_score_mittel", data=ov2, model=coxsimple)
+plot_surv_area(time="time", status="status", variable="CPS_score_mittel", data=ov2, model=coxsimple)
+plot_surv_contour(time="time", status="status", variable= "CD8SumAv", data=ov2, model=coxsimple)
+plot_surv_contour(time="time", status="status", variable="CD3SumAv", data=ov2, model=coxsimple)
+plot_surv_contour(time="time", status="status", variable="TPS_score_mittel", data=ov2, model=coxsimple)
+plot_surv_contour(time="time", status="status", variable="CPS_score_mittel", data=ov2, model=coxsimple)
+
+
+###rf here####
+
+
+#ov2$age<-as.numeric(ov2$AlterbeiDx)
+
+
+
+ov2<-as.data.frame(ov1[c(2, 3, 4, 11, 10, 14, 17, 28, 29)])
+
+
+train<-sample(1:nrow(ov2), round(nrow(ov2)*0.8))
+set.seed(12345)
+
+tunedgrow<-tune.rfsrc(Surv(time, status) ~. , data = ov2[train,], trace=FALSE, doBest=TRUE, na.action="na.imput")
+tunedgrow
+
+grow<-rfsrc(Surv(time, status) ~., data = ov2[train,], nodesize=tunedgrow$optimal["nodesize"], mtry=tunedgrow$optimal["mtry"], trace=TRUE, na.action="na.imput")
+set.seed(12345)
+pred<-predict(grow, ov2[-train,])
+set.seed(12345)
+print(grow)
+set.seed(12345)
+print(pred)
+
+
+plot.variable.rfsrc(grow, plots.per.page = 3)
+plot.variable.rfsrc(grow, plots.per.page = 3, surv.type = "surv")
+set.seed(12345)
+print(vimp(grow)$importance)
+plot(vimp(grow))
+reg.smp.o <- subsample(iris.obj, B = 25, subratio = .5)
+plot.subsample(reg.smp.o)
+print(reg.smp.o)
+plot.survival.rfsrc(grow)
+
+
+##############the same with the subgroup of Figo 3, 4#####################
+
+
+
+ov2<-ov1[c(2, 3, 4, 11, 10, 14, 17, 28, 29)]
+
+ov2<-subset(ov2, ov2$FIGO_class=="3" | ov2$FIGO_class=="4" )
+
+#ov2$CPSbin<-ifelse(ov2$CPS_score_mittel >=5, "CPS high", "CPS low")## annette asked to see what happens with thiis cutoff
+
+
+summary(ov2)
+
+cox <- coxph(Surv(time, status) ~. , data = ov2, x=TRUE)
+summary(cox)
+cox_fit <- survfit(cox)
+autoplot(cox_fit)
+#a<-ggforest(cox)
+
+test.ph <- cox.zph(cox)
+test.ph #problems with R status and figo, globally ok
+
+tab_model(cox)
+plot_model(cox)
+
+#plot_surv_area(time="time", status="status", variable="TPS_score_mittel", data=ov2, model=cox)
+plot_surv_contour(time="time", status="status", variable= "CD8SumAv", data=ov2, model=cox)
+plot_surv_contour(time="time", status="status", variable="CD3SumAv", data=ov2, model=cox)
+plot_surv_contour(time="time", status="status", variable="TPS_score_mittel", data=ov2, model=cox)
+plot_surv_contour(time="time", status="status", variable="CPS_score_mittel", data=ov2, model=cox)
+
+
+ggcoxzph(test.ph)
+ggcoxdiagnostics(cox, type = "dfbeta", linear.predictions = FALSE, ggtheme = theme_bw())
+
+ggcoxdiagnostics(cox, type = "deviance",ox.scale = "linear.predictions")
+
+simple<-ov2[, 4:9]
+coxsimple <- coxph(Surv(time, status) ~., data=simple, x=TRUE)
+summary(coxsimple) ###not significant at all
+a<-ggforest(coxsimple)
+a
+test.ph <- cox.zph(coxsimple)
+test.ph #problem
+
+plot_surv_contour(time="time", status="status", variable= "CD8SumAv", data=ov2, model=coxsimple)
+plot_surv_contour(time="time", status="status", variable="CD3SumAv", data=ov2, model=coxsimple)
+plot_surv_contour(time="time", status="status", variable="TPS_score_mittel", data=ov2, model=coxsimple)
+plot_surv_contour(time="time", status="status", variable="CPS_score_mittel", data=ov2, model=coxsimple)
+
+plot_surv_area(time="time", status="status", variable="CD3SumAv", data=ov2, model=coxsimple)
+
+
+
+
+###########################with IDO##########################################
+
+
+ov2<-ov1[c(2, 3, 4, 11, 10, 14, 17, 28, 29, 19, 18)]
+summary(ov2)
+
+
+cox <- coxph(Surv(time, status) ~. , data = ov2, x=TRUE)
+summary(cox)
+cox_fit <- survfit(cox)
+autoplot(cox_fit) 
+#a<-ggforest(cox)
+#a
+test.ph <- cox.zph(cox) ##figo and r iis questionable, but overall ok
+test.ph 
+
+tab_model(cox)
+plot_model(cox)
+
+plot_surv_area(time="time", status="status", variable="IDO_TU_mittel", data=ov2, model=cox) 
+plot_surv_area(time="time", status="status", variable= "CD8SumAv", data=ov2, model=cox)
+plot_surv_area(time="time", status="status", variable="CD3SumAv", data=ov2, model=cox)
+plot_surv_area(time="time", status="status", variable="TPS_score_mittel", data=ov2, model=cox)
+plot_surv_area(time="time", status="status", variable="CPS_score_mittel", data=ov2, model=cox)
+plot_surv_contour(time="time", status="status", variable="IDO_TU_mittel", data=ov2, model=cox)
+plot_surv_contour(time="time", status="status", variable= "CD8SumAv", data=ov2, model=cox)
+plot_surv_contour(time="time", status="status", variable="CD3SumAv", data=ov2, model=cox)
+plot_surv_contour(time="time", status="status", variable="TPS_score_mittel", data=ov2, model=cox)
+plot_surv_contour(time="time", status="status", variable="CPS_score_mittel", data=ov2, model=cox)
+```
+
+
